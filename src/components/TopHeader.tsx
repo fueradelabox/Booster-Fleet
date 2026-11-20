@@ -5,7 +5,7 @@ import type { UserRole, WorkspaceTab } from '../types/logistics';
 interface TopHeaderProps {
   activeTab: WorkspaceTab;
   userRole: UserRole;
-  walletBalanceUsd: number;
+  esgBudgetUsd: number;
   unreadCount: number;
   onOpenNotifications: () => void;
   onOpenNewLoad: () => void;
@@ -17,7 +17,7 @@ const TAB_TITLES: Record<WorkspaceTab, string> = {
   marketplace: 'Mercado Spot y Cargas en Ruta Vacía',
   fleet: 'Flota, Telemetría Teltonika y Mantenciones',
   carbon: 'Huella de Carbono, Reforestación y Blockchain',
-  wallet: 'Billetera Digital y Analítica ESG',
+  wallet: 'Liquidaciones Externas, Plazos y Analítica ESG',
 };
 
 const ROLE_LABELS: Record<UserRole, string> = {
@@ -29,7 +29,7 @@ const ROLE_LABELS: Record<UserRole, string> = {
 export const TopHeader: React.FC<TopHeaderProps> = ({
   activeTab,
   userRole,
-  walletBalanceUsd,
+  esgBudgetUsd,
   unreadCount,
   onOpenNotifications,
   onOpenNewLoad,
@@ -54,7 +54,7 @@ export const TopHeader: React.FC<TopHeaderProps> = ({
               <span className="truncate">{ROLE_LABELS[userRole]}</span>
               <span className="hidden sm:inline" aria-hidden="true">·</span>
               <span className="hidden sm:inline font-mono tabular-nums text-slate-700 font-medium">
-                Billetera ${walletBalanceUsd.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} USD
+                Fondo ESG ${esgBudgetUsd.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} USD
               </span>
             </div>
             <h1 className="font-display text-sm sm:text-lg font-semibold text-slate-900 truncate">

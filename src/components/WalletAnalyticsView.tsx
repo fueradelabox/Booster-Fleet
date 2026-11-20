@@ -3,42 +3,82 @@ import {
   ArrowDownLeft,
   ArrowUpRight,
   BarChart3,
+  FileCheck2,
   PlusCircle,
   ShieldCheck,
-  Wallet,
 } from 'lucide-react';
-import type { DigitalWallet, FleetVehicle, Shipment } from '../types/logistics';
+import type {
+  FleetVehicle,
+  SettlementLedger,
+  SettlementStatus,
+  Shipment,
+} from '../types/logistics';
+import { formatPaymentTermsLabel } from '../utils/logisticsEngine';
 
 interface WalletAnalyticsViewProps {
-  wallet: DigitalWallet;
+  ledger: SettlementLedger;
   shipments: Shipment[];
   fleet: FleetVehicle[];
   onToggleAutoOffset: () => void;
-  onTopUpWallet: (amountUsd: number) => void;
+  onAllocateEsgBudget: (amountUsd: number, reference: string) => void;
+  onRecordExternalSettlement: (params: {
+    shipment: Shipment;
+    settlementStatus: SettlementStatus;
+    invoiceFolio: string;
+    externalPaymentRef: string;
+  }) => Promise<void>;
 }
 
 export const WalletAnalyticsView: React.FC<WalletAnalyticsViewProps> = ({
-  wallet,
+  ledger,
   shipments,
   fleet,
   onToggleAutoOffset,
-  onTopUpWallet,
+  onAllocateEsgBudget,
+  onRecordExternalSettlement,
 }) => {
-  const [topUpAmount, setTopUpAmount] = useState('1000');
-  const [topUpError, setTopUpError] = useState<string | null>(null);
+  const [budgetAmount, setBudgetAmount] = useState('500');
+  const [budgetError, setBudgetError] = useState<string | null>(null);
 
-  const handleTopUp = (e: React.FormEvent) => {
+  const [selectedShipId, setSelectedShipId] = useState<string>(
+    shipments[0]?.id ?? ''
+  );
+  const [invoiceFolio, setInvoiceFolio] = useState('');
+  const [externalRef, setExternalRef] = useState('');
+  const [nextSettlementStatus, setNextSettlementStatus] =
+    useState<SettlementStatus>('facturado_por_cobrar');
+  const [submittingSettlement, setSubmittingSettlement] = useState(false);
+
+  const handleAllocateBudget = (e: React.FormEvent) => {
     e.preventDefault();
-    const val = Number(topUpAmount);
+    const val = Number(budgetAmount);
     if (Number.isNaN(val) || val <= 0 || val > 50000) {
-      setTopUpError('Ingresa un monto válido entre $1 y $50,000 USD.');
+      setBudgetError('Ingresa un monto válido entre $1 y $50,000 USD.');
       return;
     }
-    setTopUpError(null);
-    onTopUpWallet(val);
+    setBudgetError(null);
+    onAllocateEsgBudget(val, `ESG-${Date.now().toString().slice(-6)}`);
   };
 
-  // Monthly GHG reduction & efficiency analytics derived from operational telemetry
+  const handleSettlementSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const target = shipments.find((s) => s.id === selectedShipId) ?? shipments[0];
+    if (!target) return;
+    setSubmittingSettlement(true);
+    try {
+      await onRecordExternalSettlement({
+        shipment: target,
+        settlementStatus: nextSettlementStatus,
+        invoiceFolio: invoiceFolio.trim(),
+        externalPaymentRef: externalRef.trim(),
+      });
+      setInvoiceFolio('');
+      setExternalRef('');
+    } finally {
+      setSubmittingSettlement(false);
+    }
+  };
+
   const monthlySeries = useMemo(
     () => [
       { month: 'Jul', emittedKg: 1420, savedKg: 185 },
@@ -72,74 +112,184 @@ export const WalletAnalyticsView: React.FC<WalletAnalyticsViewProps> = ({
 
   return (
     <div className="space-y-6">
-      {/* Digital Wallet Summary + Auto-Offset Rule */}
-      <section className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-        <div className="lg:col-span-7 bg-slate-900 text-white rounded-xl p-6 flex flex-col justify-between gap-6">
-          <div className="flex flex-wrap items-start justify-between gap-4">
-            <div>
-              <div className="flex items-center gap-2 text-xs text-slate-300">
-                <Wallet className="w-4 h-4 text-emerald-400" />
-                <span>Billetera Digital Corporativa · Pagos y Compensaciones</span>
-              </div>
-              <div className="font-mono text-3xl font-bold tabular-nums mt-2">
-                ${wallet.balanceUsd.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} USD
-              </div>
-              <p className="text-xs text-slate-400 mt-1">
-                En custodia de fletes: ${wallet.escrowHeldUsd.toFixed(2)} USD · Total compensado: ${wallet.totalOffsetSpentUsd.toFixed(2)} USD
-              </p>
-            </div>
+      {/* Off-Platform Commercial Terms Clarification */}
+      <section className="rounded-xl border border-slate-200 bg-white px-5 py-4 flex flex-wrap items-center justify-between gap-4">
+        <div className="space-y-0.5">
+          <h2 className="font-display text-sm font-semibold text-slate-900">
+            Liquidación Comercial Fuera de Plataforma (Crédito a Plazo y Transferencia Directa)
+          </h2>
+          <p className="text-xs text-slate-600">
+            Los pagos de fletes se realizan directamente entre Generador y Transportista según sus plazos acordados (15–60 días / Carta Porte / SPEI). TerraCarga registra trazabilidad de facturas y gestiona el presupuesto ESG de carbono.
+          </p>
+        </div>
+        <div className="flex items-center gap-5 text-xs shrink-0">
+          <div>
+            <span className="text-slate-500 block">Por cobrar / plazo</span>
+            <span className="font-mono font-semibold text-slate-900 tabular-nums">
+              ${ledger.pendingReceivablesUsd.toLocaleString('en-US', { minimumFractionDigits: 2 })} USD
+            </span>
+          </div>
+          <div>
+            <span className="text-slate-500 block">Liquidado externo</span>
+            <span className="font-mono font-semibold text-emerald-700 tabular-nums">
+              ${ledger.settledExternalUsd.toLocaleString('en-US', { minimumFractionDigits: 2 })} USD
+            </span>
+          </div>
+        </div>
+      </section>
 
-            <form onSubmit={handleTopUp} className="flex items-end gap-2">
+      {/* ESG Budget + Off-Platform Settlement Recording + Analytics */}
+      <section className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+        <div className="lg:col-span-7 space-y-5">
+          {/* Corporate ESG Carbon Budget Card */}
+          <div className="bg-slate-900 text-white rounded-xl p-6 flex flex-col justify-between gap-5">
+            <div className="flex flex-wrap items-start justify-between gap-4">
               <div>
-                <label htmlFor="wallet-topup" className="block text-[11px] text-slate-300 mb-1">
-                  Recargar USD
-                </label>
-                <input
-                  id="wallet-topup"
-                  type="number"
-                  value={topUpAmount}
-                  onChange={(e) => setTopUpAmount(e.target.value)}
-                  className="w-28 rounded-lg border border-slate-700 bg-slate-800 px-3 py-2 text-xs font-mono text-white"
-                />
+                <div className="flex items-center gap-2 text-xs text-slate-300">
+                  <ShieldCheck className="w-4 h-4 text-emerald-400" />
+                  <span>Fondo Corporativo para Bonos de Carbono (ESG)</span>
+                </div>
+                <div className="font-mono text-3xl font-bold tabular-nums mt-2">
+                  ${ledger.esgBudgetUsd.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} USD
+                </div>
+                <p className="text-xs text-slate-400 mt-1">
+                  Total compensado acumulado: ${ledger.totalOffsetSpentUsd.toFixed(2)} USD
+                </p>
+              </div>
+
+              <form onSubmit={handleAllocateBudget} className="flex items-end gap-2">
+                <div>
+                  <label htmlFor="esg-budget-add" className="block text-[11px] text-slate-300 mb-1">
+                    Asignar Presupuesto ESG
+                  </label>
+                  <input
+                    id="esg-budget-add"
+                    type="number"
+                    value={budgetAmount}
+                    onChange={(e) => setBudgetAmount(e.target.value)}
+                    className="w-28 rounded-lg border border-slate-700 bg-slate-800 px-3 py-2 text-xs font-mono text-white"
+                  />
+                </div>
+                <button
+                  type="submit"
+                  className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-lg bg-emerald-500 hover:bg-emerald-400 text-slate-950 text-xs font-semibold cursor-pointer whitespace-nowrap"
+                >
+                  <PlusCircle className="w-3.5 h-3.5" />
+                  Asignar
+                </button>
+              </form>
+            </div>
+            {budgetError && (
+              <div className="text-xs text-red-300">{budgetError}</div>
+            )}
+
+            <div className="pt-4 border-t border-slate-800 flex flex-wrap items-center justify-between gap-4">
+              <div className="space-y-0.5">
+                <div className="text-xs font-semibold text-white">
+                  Compensación ESG Automática por Embarque
+                </div>
+                <p className="text-[11px] text-slate-400">
+                  Reserva automáticamente el {ledger.autoOffsetTargetPct}% de la huella verificada para retiro en proyectos Verra VCS / Gold Standard.
+                </p>
               </div>
               <button
-                type="submit"
-                className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-lg bg-emerald-500 hover:bg-emerald-400 text-slate-950 text-xs font-semibold cursor-pointer whitespace-nowrap"
+                type="button"
+                role="switch"
+                aria-checked={ledger.autoOffsetEnabled}
+                onClick={onToggleAutoOffset}
+                className={`px-3.5 py-1.5 rounded-lg text-xs font-semibold transition-colors cursor-pointer whitespace-nowrap ${
+                  ledger.autoOffsetEnabled
+                    ? 'bg-emerald-500 text-slate-950'
+                    : 'bg-slate-800 text-slate-300 border border-slate-700'
+                }`}
               >
-                <PlusCircle className="w-3.5 h-3.5" />
-                Depositar
+                {ledger.autoOffsetEnabled ? 'Activada (100%)' : 'Pausada'}
               </button>
-            </form>
-          </div>
-          {topUpError && (
-            <div className="text-xs text-red-300">{topUpError}</div>
-          )}
-
-          <div className="pt-4 border-t border-slate-800 flex flex-wrap items-center justify-between gap-4">
-            <div className="space-y-0.5">
-              <div className="text-xs font-semibold text-white flex items-center gap-1.5">
-                <ShieldCheck className="w-4 h-4 text-emerald-400" />
-                Compensación Automática de Emisiones por Viaje
-              </div>
-              <p className="text-[11px] text-slate-400">
-                Al completar cada flete, la billetera liquida al transportista y destina automáticamente el {wallet.autoOffsetTargetPct}% de la huella a reforestación certificada.
-              </p>
             </div>
-
-            <button
-              type="button"
-              role="switch"
-              aria-checked={wallet.autoOffsetEnabled}
-              onClick={onToggleAutoOffset}
-              className={`px-3.5 py-1.5 rounded-lg text-xs font-semibold transition-colors cursor-pointer whitespace-nowrap ${
-                wallet.autoOffsetEnabled
-                  ? 'bg-emerald-500 text-slate-950'
-                  : 'bg-slate-800 text-slate-300 border border-slate-700'
-              }`}
-            >
-              {wallet.autoOffsetEnabled ? 'Activada (100%)' : 'Pausada'}
-            </button>
           </div>
+
+          {/* Record External Invoice / SPEI Transfer */}
+          <form
+            onSubmit={handleSettlementSubmit}
+            className="bg-white border border-slate-200 rounded-xl p-5 space-y-4"
+          >
+            <div className="flex items-center justify-between">
+              <h3 className="font-display text-sm font-semibold text-slate-900 flex items-center gap-2">
+                <FileCheck2 className="w-4 h-4 text-emerald-700" />
+                Registrar Factura / Liquidación Externa (Fuera de Plataforma)
+              </h3>
+            </div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div>
+                <label htmlFor="stl-ship" className="block text-xs font-medium text-slate-700 mb-1">
+                  Embarque
+                </label>
+                <select
+                  id="stl-ship"
+                  value={selectedShipId}
+                  onChange={(e) => setSelectedShipId(e.target.value)}
+                  className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs"
+                >
+                  {shipments.map((s) => (
+                    <option key={s.id} value={s.id}>
+                      {s.code} · ${s.priceUsd} USD ({formatPaymentTermsLabel(s.paymentTerms)})
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label htmlFor="stl-status" className="block text-xs font-medium text-slate-700 mb-1">
+                  Estado comercial
+                </label>
+                <select
+                  id="stl-status"
+                  value={nextSettlementStatus}
+                  onChange={(e) =>
+                    setNextSettlementStatus(e.target.value as SettlementStatus)
+                  }
+                  className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs"
+                >
+                  <option value="facturado_por_cobrar">Facturado / Por cobrar a plazo</option>
+                  <option value="liquidado_externo">Liquidado por transferencia externa</option>
+                </select>
+              </div>
+              <div>
+                <label htmlFor="stl-folio" className="block text-xs font-medium text-slate-700 mb-1">
+                  Folio Factura / Carta Porte
+                </label>
+                <input
+                  id="stl-folio"
+                  type="text"
+                  value={invoiceFolio}
+                  onChange={(e) => setInvoiceFolio(e.target.value)}
+                  placeholder="Ej. CFDI-2026-8410"
+                  className="w-full rounded-lg border border-slate-300 px-3 py-2 text-xs font-mono"
+                />
+              </div>
+              <div>
+                <label htmlFor="stl-ref" className="block text-xs font-medium text-slate-700 mb-1">
+                  Referencia Transferencia / SPEI
+                </label>
+                <input
+                  id="stl-ref"
+                  type="text"
+                  value={externalRef}
+                  onChange={(e) => setExternalRef(e.target.value)}
+                  placeholder="Ej. SPEI-9920144"
+                  className="w-full rounded-lg border border-slate-300 px-3 py-2 text-xs font-mono"
+                />
+              </div>
+            </div>
+            <div className="flex justify-end">
+              <button
+                type="submit"
+                disabled={submittingSettlement}
+                className="px-4 py-2 rounded-lg bg-slate-900 hover:bg-slate-800 disabled:opacity-60 text-white text-xs font-semibold cursor-pointer"
+              >
+                {submittingSettlement ? 'Guardando...' : 'Registrar Comprobante Externo'}
+              </button>
+            </div>
+          </form>
         </div>
 
         {/* Operational & ESG Analytics Card */}
@@ -202,10 +352,10 @@ export const WalletAnalyticsView: React.FC<WalletAnalyticsViewProps> = ({
         </div>
       </section>
 
-      {/* Transaction Ledger */}
+      {/* Settlement & ESG Ledger */}
       <section className="bg-white border border-slate-200 rounded-xl p-5 space-y-3">
         <h3 className="font-display text-sm font-semibold text-slate-900">
-          Libro Mayor de Movimientos Financieros ({wallet.transactions.length})
+          Registro de Acuerdos Comerciales, Facturas y Retiros ESG ({ledger.records.length})
         </h3>
         <div className="overflow-x-auto">
           <table className="w-full text-left text-xs">
@@ -213,18 +363,18 @@ export const WalletAnalyticsView: React.FC<WalletAnalyticsViewProps> = ({
               <tr className="border-b border-slate-200 text-slate-500">
                 <th className="py-2 pr-3 font-medium">Fecha</th>
                 <th className="py-2 pr-3 font-medium">Concepto</th>
-                <th className="py-2 pr-3 font-medium">Referencia</th>
+                <th className="py-2 pr-3 font-medium">Plazo / Referencia</th>
                 <th className="py-2 pr-3 font-medium">Estado</th>
                 <th className="py-2 font-medium text-right">Monto (USD)</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
-              {wallet.transactions.map((tx) => {
-                const positive = tx.amountUsd > 0;
+              {ledger.records.map((rec) => {
+                const positive = rec.amountUsd > 0;
                 return (
-                  <tr key={tx.id} className="hover:bg-slate-50">
+                  <tr key={rec.id} className="hover:bg-slate-50">
                     <td className="py-2.5 pr-3 font-mono text-slate-500 whitespace-nowrap tabular-nums">
-                      {new Date(tx.timestampIso).toLocaleDateString('es-MX')}
+                      {new Date(rec.timestampIso).toLocaleDateString('es-MX')}
                     </td>
                     <td className="py-2.5 pr-3 font-medium text-slate-900">
                       <span className="inline-flex items-center gap-1.5">
@@ -233,17 +383,26 @@ export const WalletAnalyticsView: React.FC<WalletAnalyticsViewProps> = ({
                         ) : (
                           <ArrowUpRight className="w-3.5 h-3.5 text-slate-500" />
                         )}
-                        {tx.description}
+                        {rec.description}
                       </span>
                     </td>
-                    <td className="py-2.5 pr-3 font-mono text-slate-600">{tx.referenceId}</td>
-                    <td className="py-2.5 pr-3 text-slate-600 capitalize">{tx.status.replace('_', ' ')}</td>
+                    <td className="py-2.5 pr-3 text-slate-600">
+                      <span>{formatPaymentTermsLabel(rec.paymentTerms)}</span>
+                      {(rec.invoiceFolio || rec.externalRef) && (
+                        <span className="block font-mono text-[11px] text-slate-500">
+                          {[rec.invoiceFolio, rec.externalRef].filter(Boolean).join(' · ')}
+                        </span>
+                      )}
+                    </td>
+                    <td className="py-2.5 pr-3 text-slate-600 capitalize">
+                      {rec.status.replace(/_/g, ' ')}
+                    </td>
                     <td
                       className={`py-2.5 text-right font-mono font-semibold tabular-nums whitespace-nowrap ${
                         positive ? 'text-emerald-700' : 'text-slate-900'
                       }`}
                     >
-                      {positive ? '+' : '-'}${Math.abs(tx.amountUsd).toFixed(2)}
+                      {positive ? '+' : '-'}${Math.abs(rec.amountUsd).toFixed(2)}
                     </td>
                   </tr>
                 );

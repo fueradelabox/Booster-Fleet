@@ -4,18 +4,23 @@ import {
   PackageSearch,
   Truck,
   Leaf,
-  Wallet,
+  FileSpreadsheet,
   Headphones,
   ShieldCheck,
+  LogOut,
   X,
 } from 'lucide-react';
-import type { UserRole, WorkspaceTab } from '../types/logistics';
+import type { UserProfile, UserRole, WorkspaceTab } from '../types/logistics';
 
 interface SidebarNavProps {
   activeTab: WorkspaceTab;
   onSelectTab: (tab: WorkspaceTab) => void;
   userRole: UserRole;
+  isAdminUser: boolean;
+  userProfile: UserProfile | null;
+  wsConnected: boolean;
   onChangeRole: (role: UserRole) => void;
+  onSignOut: () => void;
   unreadNotifications: number;
   criticalMaintenanceCount: number;
   onOpenSupport: () => void;
@@ -32,11 +37,11 @@ const NAV_ITEMS: {
   { id: 'marketplace', label: 'Mercado Spot', icon: PackageSearch },
   { id: 'fleet', label: 'Flota y Teltonika', icon: Truck },
   { id: 'carbon', label: 'Carbono y Blockchain', icon: Leaf },
-  { id: 'wallet', label: 'Billetera y Analítica', icon: Wallet },
+  { id: 'wallet', label: 'Liquidaciones y ESG', icon: FileSpreadsheet },
 ];
 
-const ROLE_OPTIONS: { id: UserRole; label: string; subtitle: string }[] = [
-  { id: 'admin', label: 'Torre de Control', subtitle: 'Vista integral 360°' },
+const ROLE_OPTIONS: { id: UserRole; label: string; subtitle: string; adminOnly?: boolean }[] = [
+  { id: 'admin', label: 'Torre de Control', subtitle: 'Vista integral 360°', adminOnly: true },
   { id: 'carrier', label: 'Transportista', subtitle: 'Flota 1+ y rutas vacías' },
   { id: 'shipper', label: 'Generador Carga', subtitle: 'Spot, programada y ESG' },
 ];
@@ -45,12 +50,18 @@ export const SidebarNav: React.FC<SidebarNavProps> = ({
   activeTab,
   onSelectTab,
   userRole,
+  isAdminUser,
+  userProfile,
+  wsConnected,
   onChangeRole,
+  onSignOut,
   criticalMaintenanceCount,
   onOpenSupport,
   mobileOpen,
   onCloseMobile,
 }) => {
+  const visibleRoles = ROLE_OPTIONS.filter((r) => !r.adminOnly || isAdminUser);
+
   const content = (
     <div className="flex h-full flex-col bg-slate-900 text-slate-100 w-64 shrink-0 border-r border-slate-800">
       <div className="flex items-center justify-between px-5 py-5 border-b border-slate-800">
@@ -58,7 +69,7 @@ export const SidebarNav: React.FC<SidebarNavProps> = ({
           <span className="font-display text-lg font-bold tracking-tight text-white">
             TerraCarga
           </span>
-          <p className="text-xs text-slate-400 mt-0.5">Logística Carbono Neutral</p>
+          <p className="text-xs text-slate-400 mt-0.5">MVP Logístico Carbono Neutral</p>
         </div>
         <button
           type="button"
@@ -75,7 +86,7 @@ export const SidebarNav: React.FC<SidebarNavProps> = ({
           Perfil operativo
         </p>
         <div className="space-y-1" role="group" aria-label="Selector de rol">
-          {ROLE_OPTIONS.map((role) => {
+          {visibleRoles.map((role) => {
             const active = userRole === role.id;
             return (
               <button
@@ -138,18 +149,41 @@ export const SidebarNav: React.FC<SidebarNavProps> = ({
       </nav>
 
       <div className="p-4 border-t border-slate-800 space-y-2.5">
+        {userProfile && (
+          <div className="px-2 py-1.5 rounded-lg bg-slate-800/70 border border-slate-700/60">
+            <div className="text-xs font-semibold text-white truncate">
+              {userProfile.displayName}
+            </div>
+            <div className="text-[11px] text-slate-400 truncate">
+              {userProfile.companyName}
+            </div>
+          </div>
+        )}
         <div className="flex items-center gap-2 text-xs text-slate-300 px-2">
           <ShieldCheck className="w-4 h-4 text-emerald-400 shrink-0" />
-          <span className="truncate">Teltonika CAN-Bus · Blockchain</span>
+          <span className="truncate">
+            {wsConnected ? 'Teltonika WS En Vivo · Firestore' : 'Firestore · Blockchain'}
+          </span>
         </div>
-        <button
-          type="button"
-          onClick={onOpenSupport}
-          className="w-full flex items-center justify-center gap-2 px-3 py-2.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-xs font-semibold text-white transition-colors cursor-pointer whitespace-nowrap"
-        >
-          <Headphones className="w-4 h-4 text-emerald-400" />
-          Soporte Técnico 24/7
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={onOpenSupport}
+            className="flex-1 flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-xs font-semibold text-white transition-colors cursor-pointer whitespace-nowrap"
+          >
+            <Headphones className="w-3.5 h-3.5 text-emerald-400" />
+            Soporte 24/7
+          </button>
+          <button
+            type="button"
+            onClick={onSignOut}
+            title="Cerrar sesión"
+            aria-label="Cerrar sesión"
+            className="p-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white transition-colors cursor-pointer"
+          >
+            <LogOut className="w-4 h-4" />
+          </button>
+        </div>
       </div>
     </div>
   );

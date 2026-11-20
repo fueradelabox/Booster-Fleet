@@ -4,6 +4,7 @@ import {
   CheckCircle2,
   Cpu,
   Plus,
+  Radio,
   ShieldCheck,
   Truck,
   Wrench,
@@ -18,6 +19,7 @@ import { evaluateMaintenanceStatus } from '../utils/logisticsEngine';
 
 interface FleetTeltonikaViewProps {
   fleet: FleetVehicle[];
+  wsConnected: boolean;
   onAddMaintenance: (
     vehicleId: string,
     record: Omit<MaintenanceRecord, 'id' | 'vehicleId'>
@@ -32,16 +34,20 @@ interface FleetTeltonikaViewProps {
     imei: string;
     odometerKm: number;
   }) => void;
+  onDispatchTeltonikaWebhookTest: (vehicle: FleetVehicle) => Promise<void>;
 }
 
 export const FleetTeltonikaView: React.FC<FleetTeltonikaViewProps> = ({
   fleet,
+  wsConnected,
   onAddMaintenance,
   onAddVehicle,
+  onDispatchTeltonikaWebhookTest,
 }) => {
   const [selectedVehicleId, setSelectedVehicleId] = useState<string>(
     fleet[0]?.id ?? ''
   );
+  const [webhookSending, setWebhookSending] = useState(false);
 
   // Maintenance form state
   const [showMaintForm, setShowMaintForm] = useState(false);
@@ -52,7 +58,7 @@ export const FleetTeltonikaView: React.FC<FleetTeltonikaViewProps> = ({
   const [maintNotes, setMaintNotes] = useState('');
   const [maintError, setMaintError] = useState<string | null>(null);
 
-  // Add vehicle form state (supports 1-vehicle independent operators up to enterprise fleets)
+  // Add vehicle form state
   const [showAddVehicle, setShowAddVehicle] = useState(false);
   const [unitName, setUnitName] = useState('');
   const [plate, setPlate] = useState('');
@@ -73,7 +79,7 @@ export const FleetTeltonikaView: React.FC<FleetTeltonikaViewProps> = ({
     let critical = 0;
     let warning = 0;
     fleet.forEach((v) => {
-      const ev = evaluateMaintenanceStatus(v, '2026-11-20T15:30:00Z');
+      const ev = evaluateMaintenanceStatus(v, new Date().toISOString());
       if (ev.level === 'critical') critical++;
       else if (ev.level === 'warning') warning++;
     });
@@ -143,6 +149,19 @@ export const FleetTeltonikaView: React.FC<FleetTeltonikaViewProps> = ({
     setDriverName('');
     setShowAddVehicle(false);
   };
+
+  const handleSendWebhookPacket = async () => {
+    if (!selectedVehicle) return;
+    setWebhookSending(true);
+    try {
+      await onDispatchTeltonikaWebhookTest(selectedVehicle);
+    } finally {
+      setWebhookSending(false);
+    }
+  };
+
+  const originUrl =
+    typeof window !== 'undefined' ? window.location.origin : 'https://tu-dominio.app';
 
   return (
     <div className="space-y-6">
@@ -316,10 +335,9 @@ export const FleetTeltonikaView: React.FC<FleetTeltonikaViewProps> = ({
 
       {/* Fleet List + Selected Teltonika Telemetry & Maintenance Logbook */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-        {/* Vehicles List */}
         <div className="lg:col-span-5 space-y-3">
           {fleet.map((v) => {
-            const maint = evaluateMaintenanceStatus(v, '2026-11-20T15:30:00Z');
+            const maint = evaluateMaintenanceStatus(v, new Date().toISOString());
             const selected = v.id === selectedVehicle?.id;
             return (
               <button
@@ -388,7 +406,6 @@ export const FleetTeltonikaView: React.FC<FleetTeltonikaViewProps> = ({
           })}
         </div>
 
-        {/* Selected Vehicle Details + Logbook */}
         {selectedVehicle && (
           <div className="lg:col-span-7 space-y-5">
             {/* Teltonika Hardware Card */}
@@ -440,6 +457,33 @@ export const FleetTeltonikaView: React.FC<FleetTeltonikaViewProps> = ({
               </div>
             </div>
 
+            {/* Real HTTP / WebSocket Teltonika Gateway Panel */}
+            <div className="bg-slate-900 text-slate-100 rounded-xl p-5 space-y-3">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div>
+                  <div className="flex items-center gap-2 text-xs font-semibold text-emerald-400">
+                    <Radio className="w-4 h-4" />
+                    Gateway HTTP / WebSocket Teltonika ({wsConnected ? 'Conectado' : 'Reconectando'})
+                  </div>
+                  <p className="text-xs text-slate-300 mt-0.5">
+                    Conecta tu servidor FOTA Web, Traccar o forwarder Codec 8E hacia este endpoint en vivo:
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  disabled={webhookSending}
+                  onClick={handleSendWebhookPacket}
+                  className="px-3.5 py-2 rounded-lg bg-emerald-500 hover:bg-emerald-400 disabled:opacity-60 text-slate-950 text-xs font-semibold cursor-pointer whitespace-nowrap"
+                >
+                  {webhookSending ? 'Transmitiendo...' : 'Enviar Paquete HTTP Teltonika'}
+                </button>
+              </div>
+              <pre className="rounded-lg bg-slate-950 border border-slate-800 p-3 text-[11px] font-mono text-slate-300 overflow-x-auto">
+{`POST ${originUrl}/api/telemetry/teltonika
+{ "imei": "${selectedVehicle.teltonika.imei}", "lat": ${(selectedVehicle.currentPosition.lat + 0.015).toFixed(4)}, "lng": ${(selectedVehicle.currentPosition.lng - 0.012).toFixed(4)}, "speedKmh": 78, "odometerKm": ${selectedVehicle.teltonika.odometerKm + 12}, "fuelLevelPct": ${Math.max(10, selectedVehicle.teltonika.fuelLevelPct - 1)} }`}
+              </pre>
+            </div>
+
             {/* Maintenance Logbook */}
             <div className="bg-white border border-slate-200 rounded-xl p-5 space-y-4">
               <div className="flex flex-wrap items-center justify-between gap-3">
@@ -449,7 +493,7 @@ export const FleetTeltonikaView: React.FC<FleetTeltonikaViewProps> = ({
                     Bitácora de Mantenciones Preventivas y Correctivas
                   </h3>
                   <p className="text-xs text-slate-500 mt-0.5">
-                    {evaluateMaintenanceStatus(selectedVehicle, '2026-11-20T15:30:00Z').reason}
+                    {evaluateMaintenanceStatus(selectedVehicle, new Date().toISOString()).reason}
                   </p>
                 </div>
 

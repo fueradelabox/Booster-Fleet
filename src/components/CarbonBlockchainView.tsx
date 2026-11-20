@@ -1,7 +1,8 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import {
   CheckCircle2,
   Download,
+  ExternalLink,
   Leaf,
   Lock,
   ShieldCheck,
@@ -18,16 +19,25 @@ interface CarbonBlockchainViewProps {
   shipments: Shipment[];
   projects: ReforestationProject[];
   certificates: BlockchainCertificate[];
-  walletBalanceUsd: number;
-  onOffsetShipment: (shipmentId: string, projectId: string) => void;
+  esgBudgetUsd: number;
+  onOffsetShipment: (shipmentId: string, projectId: string) => Promise<void> | void;
+  onOpenPublicCertificate: (certCode: string) => void;
+}
+
+interface BlockchainNodeStatus {
+  evmOnChainEnabled: boolean;
+  signerAddress: string;
+  networkName: string;
+  carbonRegistryEnabled: boolean;
 }
 
 export const CarbonBlockchainView: React.FC<CarbonBlockchainViewProps> = ({
   shipments,
   projects,
   certificates,
-  walletBalanceUsd,
+  esgBudgetUsd,
   onOffsetShipment,
+  onOpenPublicCertificate,
 }) => {
   const uncompensatedShipments = useMemo(
     () => shipments.filter((s) => !s.offsetCompleted),
@@ -43,6 +53,24 @@ export const CarbonBlockchainView: React.FC<CarbonBlockchainViewProps> = ({
   const [previewCert, setPreviewCert] = useState<BlockchainCertificate | null>(
     certificates[0] ?? null
   );
+  const [issuing, setIssuing] = useState(false);
+  const [nodeStatus, setNodeStatus] = useState<BlockchainNodeStatus | null>(null);
+  const [verifyMsg, setVerifyMsg] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!previewCert && certificates[0]) {
+      setPreviewCert(certificates[0]);
+    }
+  }, [certificates, previewCert]);
+
+  useEffect(() => {
+    fetch('/api/blockchain/status')
+      .then((r) => r.json())
+      .then((data) => setNodeStatus(data))
+      .catch(() => {
+        // Non-critical status lookup
+      });
+  }, []);
 
   const selectedShipment = useMemo(
     () =>
@@ -62,8 +90,7 @@ export const CarbonBlockchainView: React.FC<CarbonBlockchainViewProps> = ({
     [shipments]
   );
   const compensatedCo2Kg = useMemo(
-    () =>
-      certificates.reduce((acc, c) => acc + c.co2CompensatedKg, 0),
+    () => certificates.reduce((acc, c) => acc + c.co2CompensatedKg, 0),
     [certificates]
   );
 
@@ -71,28 +98,49 @@ export const CarbonBlockchainView: React.FC<CarbonBlockchainViewProps> = ({
     if (!selectedShipment || !selectedProject) return 0;
     const tons = selectedShipment.co2Kg / 1000;
     return Number(
-      Math.max(0.5, tons * (selectedProject.pricePerTonUsd || CARBON_PRICE_PER_TON_USD)).toFixed(2)
+      Math.max(
+        0.5,
+        tons * (selectedProject.pricePerTonUsd || CARBON_PRICE_PER_TON_USD)
+      ).toFixed(2)
     );
   }, [selectedShipment, selectedProject]);
 
+  const handleIssueOffset = async () => {
+    if (!selectedShipment || !selectedProject) return;
+    setIssuing(true);
+    try {
+      await onOffsetShipment(selectedShipment.id, selectedProject.id);
+    } finally {
+      setIssuing(false);
+    }
+  };
+
+  const handleVerifySignature = async (cert: BlockchainCertificate) => {
+    setVerifyMsg('Verificando prueba...');
+    try {
+      const res = await fetch('/api/blockchain/verify', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          txHash: cert.txHash,
+          signature: cert.signature,
+          signerAddress: cert.signerAddress,
+          digest: cert.txHash,
+        }),
+      });
+      const data = await res.json();
+      setVerifyMsg(
+        data.verified
+          ? `Prueba válida (${data.mode}${data.recoveredAddress ? ` · ${data.recoveredAddress.slice(0, 12)}...` : ''})`
+          : 'No se pudo verificar la firma.'
+      );
+    } catch {
+      setVerifyMsg('Error verificando prueba.');
+    }
+  };
+
   const downloadCertificateJson = (cert: BlockchainCertificate) => {
-    const payload = {
-      plataforma: 'TerraCarga Logística Carbono Neutral',
-      certificado: cert.certificateCode,
-      estandar: cert.standard,
-      envio: cert.shipmentCode,
-      vehiculo: cert.vehiclePlate,
-      telemetriaTeltonikaIMEI: cert.teltonikaImei,
-      distanciaKm: cert.distanceKm,
-      combustibleLitros: cert.fuelConsumedLiters,
-      co2CompensadoKg: cert.co2CompensatedKg,
-      proyectoReforestacion: cert.projectName,
-      montoCompensadoUSD: cert.offsetCostUsd,
-      blockchainBlock: cert.blockNumber,
-      blockchainTxHash: cert.txHash,
-      fechaEmision: cert.issuedAtIso,
-    };
-    const blob = new Blob([JSON.stringify(payload, null, 2)], {
+    const blob = new Blob([JSON.stringify(cert, null, 2)], {
       type: 'application/json',
     });
     const url = URL.createObjectURL(blob);
@@ -105,6 +153,26 @@ export const CarbonBlockchainView: React.FC<CarbonBlockchainViewProps> = ({
 
   return (
     <div className="space-y-6">
+      {/* Node & Registry Status Strip */}
+      {nodeStatus && (
+        <div className="rounded-xl border border-slate-200 bg-white px-4 py-3 flex flex-wrap items-center justify-between gap-3 text-xs">
+          <div className="flex flex-wrap items-center gap-4">
+            <span className="font-semibold text-slate-900">
+              Capa Blockchain: {nodeStatus.networkName}
+            </span>
+            <span className="text-slate-600">
+              Registro Bonos:{' '}
+              {nodeStatus.carbonRegistryEnabled
+                ? 'API Patch / CNaught Activa'
+                : 'Reserva Corporativa Verra / Gold Standard (Listo para API Key)'}
+            </span>
+          </div>
+          <span className="font-mono text-[11px] text-slate-500">
+            Firmante: {nodeStatus.signerAddress.slice(0, 10)}...{nodeStatus.signerAddress.slice(-6)}
+          </span>
+        </div>
+      )}
+
       {/* GHG KPI Strip */}
       <section className="grid grid-cols-1 sm:grid-cols-3 gap-4">
         <div className="bg-white border border-slate-200 rounded-xl p-4">
@@ -123,17 +191,17 @@ export const CarbonBlockchainView: React.FC<CarbonBlockchainViewProps> = ({
             {compensatedCo2Kg.toFixed(1)} kg CO₂e
           </div>
           <div className="text-xs text-emerald-700 mt-1">
-            {certificates.length} certificados inmutables emitidos
+            {certificates.length} certificados públicos verificables
           </div>
         </div>
 
         <div className="bg-white border border-slate-200 rounded-xl p-4">
-          <div className="text-xs font-medium text-slate-500">Saldo Disponible en Billetera</div>
+          <div className="text-xs font-medium text-slate-500">Fondo Corporativo ESG</div>
           <div className="font-mono text-2xl font-semibold text-slate-900 tabular-nums mt-1">
-            ${walletBalanceUsd.toLocaleString('en-US', { minimumFractionDigits: 2 })} USD
+            ${esgBudgetUsd.toLocaleString('en-US', { minimumFractionDigits: 2 })} USD
           </div>
           <div className="text-xs text-slate-500 mt-1">
-            Debitado automáticamente al confirmar compensación
+            Presupuesto dedicado a bonos de carbono
           </div>
         </div>
       </section>
@@ -144,10 +212,10 @@ export const CarbonBlockchainView: React.FC<CarbonBlockchainViewProps> = ({
           <div>
             <h2 className="font-display text-base font-semibold text-slate-900 flex items-center gap-2">
               <Trees className="w-4 h-4 text-emerald-700" />
-              Compensar Emisiones con Proyectos de Reforestación Certificados
+              Compensar Emisiones y Retirar Bonos Certificados
             </h2>
             <p className="text-xs text-slate-600 mt-1">
-              Selecciona un embarque auditado por GPS Teltonika y un proyecto Verra VCS / Gold Standard para emitir un certificado ESG verificable.
+              Cada compensación ejecuta una orden de retiro en registro de carbono (Patch/CNaught o reserva Verra VCS) y ancla el hash Keccak-256 con firma ECDSA / EVM.
             </p>
           </div>
 
@@ -158,7 +226,7 @@ export const CarbonBlockchainView: React.FC<CarbonBlockchainViewProps> = ({
                 100% de los embarques actuales han sido compensados
               </div>
               <p className="text-xs text-emerald-800">
-                Tu operación logística actual cuenta con trazabilidad carbono neutral completa en Blockchain.
+                Tu operación logística actual cuenta con trazabilidad carbono neutral completa.
               </p>
             </div>
           ) : (
@@ -228,7 +296,7 @@ export const CarbonBlockchainView: React.FC<CarbonBlockchainViewProps> = ({
                 <div className="rounded-lg bg-slate-900 text-white p-4 flex flex-wrap items-center justify-between gap-4">
                   <div>
                     <div className="text-xs text-slate-300">
-                      Compensación total ({selectedShipment.co2Kg} kg CO₂e)
+                      Asignación ESG ({selectedShipment.co2Kg} kg CO₂e)
                     </div>
                     <div className="font-mono text-xl font-bold tabular-nums">
                       ${offsetCostUsd.toFixed(2)} USD
@@ -236,13 +304,12 @@ export const CarbonBlockchainView: React.FC<CarbonBlockchainViewProps> = ({
                   </div>
                   <button
                     type="button"
-                    onClick={() =>
-                      onOffsetShipment(selectedShipment.id, selectedProject.id)
-                    }
-                    className="inline-flex items-center gap-2 px-4 py-2.5 rounded-lg bg-emerald-500 hover:bg-emerald-400 text-slate-950 text-xs font-semibold transition-colors cursor-pointer whitespace-nowrap"
+                    disabled={issuing}
+                    onClick={handleIssueOffset}
+                    className="inline-flex items-center gap-2 px-4 py-2.5 rounded-lg bg-emerald-500 hover:bg-emerald-400 disabled:opacity-60 text-slate-950 text-xs font-semibold transition-colors cursor-pointer whitespace-nowrap"
                   >
                     <Leaf className="w-4 h-4" />
-                    Compensar y Emitir Certificado Blockchain
+                    {issuing ? 'Anclando y Emitiendo...' : 'Compensar y Anclar en Blockchain'}
                   </button>
                 </div>
               )}
@@ -252,20 +319,30 @@ export const CarbonBlockchainView: React.FC<CarbonBlockchainViewProps> = ({
 
         {/* Certificate Inspector */}
         <div className="lg:col-span-5 bg-white border border-slate-200 rounded-xl p-5 space-y-4">
-          <div className="flex items-center justify-between">
+          <div className="flex items-center justify-between gap-2">
             <h3 className="font-display text-sm font-semibold text-slate-900 flex items-center gap-2">
               <Lock className="w-4 h-4 text-emerald-700" />
-              Certificado Verificable en Blockchain
+              Certificado Verificable
             </h3>
             {previewCert && (
-              <button
-                type="button"
-                onClick={() => downloadCertificateJson(previewCert)}
-                className="inline-flex items-center gap-1.5 text-xs font-semibold text-emerald-800 hover:text-emerald-950 cursor-pointer"
-              >
-                <Download className="w-3.5 h-3.5" />
-                Exportar ESG
-              </button>
+              <div className="flex items-center gap-3">
+                <button
+                  type="button"
+                  onClick={() => onOpenPublicCertificate(previewCert.certificateCode)}
+                  className="inline-flex items-center gap-1 text-xs font-semibold text-slate-700 hover:text-slate-950 cursor-pointer"
+                >
+                  <ExternalLink className="w-3.5 h-3.5" />
+                  URL Pública
+                </button>
+                <button
+                  type="button"
+                  onClick={() => downloadCertificateJson(previewCert)}
+                  className="inline-flex items-center gap-1 text-xs font-semibold text-emerald-800 hover:text-emerald-950 cursor-pointer"
+                >
+                  <Download className="w-3.5 h-3.5" />
+                  Exportar ESG
+                </button>
+              </div>
             )}
           </div>
 
@@ -280,7 +357,7 @@ export const CarbonBlockchainView: React.FC<CarbonBlockchainViewProps> = ({
                 </div>
                 <span className="inline-flex items-center gap-1 text-emerald-700 font-semibold">
                   <ShieldCheck className="w-4 h-4" />
-                  Auditado
+                  {previewCert.anchorMode === 'evm_onchain' ? 'On-Chain EVM' : 'ECDSA Verificado'}
                 </span>
               </div>
 
@@ -312,15 +389,21 @@ export const CarbonBlockchainView: React.FC<CarbonBlockchainViewProps> = ({
               </div>
 
               <div className="pt-2 border-t border-slate-200 space-y-1">
-                <div className="text-slate-500">Proyecto de Reforestación</div>
+                <div className="text-slate-500">Proyecto y Registro de Carbono</div>
                 <div className="font-medium text-slate-900">
                   {previewCert.projectName} ({previewCert.standard})
                 </div>
+                {previewCert.registryProvider && (
+                  <div className="text-[11px] text-slate-600">
+                    {previewCert.registryProvider}
+                    {previewCert.registryOrderId ? ` · ${previewCert.registryOrderId}` : ''}
+                  </div>
+                )}
               </div>
 
-              <div className="pt-2 border-t border-slate-200 space-y-1">
+              <div className="pt-2 border-t border-slate-200 space-y-1.5">
                 <div className="flex justify-between text-slate-500">
-                  <span>Bloque #{previewCert.blockNumber}</span>
+                  <span>{previewCert.networkName}</span>
                   <span className="font-mono">
                     {new Date(previewCert.issuedAtIso).toLocaleDateString('es-MX')}
                   </span>
@@ -328,6 +411,29 @@ export const CarbonBlockchainView: React.FC<CarbonBlockchainViewProps> = ({
                 <div className="font-mono text-[11px] text-slate-700 break-all bg-white border border-slate-200 rounded p-2">
                   {previewCert.txHash}
                 </div>
+                <div className="flex items-center justify-between pt-1">
+                  <button
+                    type="button"
+                    onClick={() => handleVerifySignature(previewCert)}
+                    className="text-[11px] font-semibold text-slate-900 underline hover:text-emerald-700 cursor-pointer"
+                  >
+                    Verificar Prueba Criptográfica
+                  </button>
+                  {previewCert.explorerUrl && (
+                    <a
+                      href={previewCert.explorerUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-[11px] font-semibold text-emerald-700 hover:underline inline-flex items-center gap-1"
+                    >
+                      Explorador EVM
+                      <ExternalLink className="w-3 h-3" />
+                    </a>
+                  )}
+                </div>
+                {verifyMsg && (
+                  <p className="text-[11px] text-emerald-800 font-medium">{verifyMsg}</p>
+                )}
               </div>
             </div>
           ) : (
@@ -351,7 +457,7 @@ export const CarbonBlockchainView: React.FC<CarbonBlockchainViewProps> = ({
                 <th className="py-2 pr-3 font-medium">Envío / Unidad</th>
                 <th className="py-2 pr-3 font-medium">Proyecto</th>
                 <th className="py-2 pr-3 font-medium text-right">CO₂e (kg)</th>
-                <th className="py-2 pr-3 font-medium">Tx Hash</th>
+                <th className="py-2 pr-3 font-medium">Hash / Tx</th>
                 <th className="py-2 font-medium text-right">Acción</th>
               </tr>
             </thead>
@@ -371,13 +477,23 @@ export const CarbonBlockchainView: React.FC<CarbonBlockchainViewProps> = ({
                   <td className="py-2.5 pr-3 font-mono text-slate-500">
                     {cert.txHash.slice(0, 14)}...{cert.txHash.slice(-6)}
                   </td>
-                  <td className="py-2.5 text-right whitespace-nowrap">
+                  <td className="py-2.5 text-right whitespace-nowrap space-x-3">
                     <button
                       type="button"
-                      onClick={() => setPreviewCert(cert)}
+                      onClick={() => {
+                        setVerifyMsg(null);
+                        setPreviewCert(cert);
+                      }}
                       className="text-xs font-semibold text-slate-900 underline hover:text-emerald-700 cursor-pointer"
                     >
                       Inspeccionar
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => onOpenPublicCertificate(cert.certificateCode)}
+                      className="text-xs font-semibold text-emerald-700 underline hover:text-emerald-900 cursor-pointer"
+                    >
+                      URL Pública
                     </button>
                   </td>
                 </tr>

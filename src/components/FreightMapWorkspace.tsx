@@ -773,7 +773,7 @@ export const FreightMapWorkspace: React.FC<FreightMapWorkspaceProps> = ({
                       }
                       className="w-full py-2 px-3 rounded-lg bg-emerald-700 hover:bg-emerald-800 text-white text-xs font-semibold transition-colors cursor-pointer"
                     >
-                      Compensar {selectedShipment.co2Kg} kg CO₂e vía Billetera
+                      Compensar {selectedShipment.co2Kg} kg CO₂e (Fondo ESG)
                     </button>
                   )}
                 </div>

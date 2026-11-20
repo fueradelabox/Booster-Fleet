@@ -1,0 +1,325 @@
+{
+  "entities": {
+    "UserProfile": {
+      "title": "UserProfile",
+      "description": "Public operational profile of a TerraCarga user (no PII).",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "displayName": { "type": "string", "minLength": 1, "maxLength": 120 },
+        "companyName": { "type": "string", "minLength": 1, "maxLength": 140 },
+        "role": { "type": "string", "enum": ["shipper", "carrier", "admin"] },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["uid", "displayName", "companyName", "role", "createdAt", "updatedAt"]
+    },
+    "UserPrivateInfo": {
+      "title": "UserPrivateInfo",
+      "description": "Isolated PII record for user contact and tax billing info.",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "email": { "type": "string", "minLength": 3, "maxLength": 160 },
+        "phone": { "type": "string", "maxLength": 40 },
+        "taxId": { "type": "string", "maxLength": 40 },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["uid", "email", "createdAt", "updatedAt"]
+    },
+    "FleetVehicle": {
+      "title": "FleetVehicle",
+      "description": "Registered commercial truck with Teltonika GPS CAN-bus hardware.",
+      "type": "object",
+      "properties": {
+        "ownerId": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "visibility": { "type": "string", "enum": ["private", "shared_dispatch"] },
+        "plate": { "type": "string", "minLength": 3, "maxLength": 24 },
+        "unitName": { "type": "string", "minLength": 2, "maxLength": 120 },
+        "vehicleClass": { "type": "string", "enum": ["tractocamion", "torton", "rabon", "van_electrica"] },
+        "fuelType": { "type": "string", "enum": ["DIESEL", "HYBRID", "ELECTRIC", "LNG"] },
+        "maxPayloadTons": { "type": "number" },
+        "driverName": { "type": "string", "minLength": 2, "maxLength": 100 },
+        "status": { "type": "string", "enum": ["en_ruta", "disponible", "ruta_vacia", "mantenimiento"] },
+        "currentPosition": { "type": "object" },
+        "currentLocationLabel": { "type": "string", "minLength": 2, "maxLength": 160 },
+        "emptyBackhaulTo": { "type": "string", "maxLength": 120 },
+        "nextServiceOdometerKm": { "type": "number" },
+        "nextServiceDateIso": { "type": "string", "maxLength": 40 },
+        "teltonika": { "type": "object" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": [
+        "ownerId",
+        "visibility",
+        "plate",
+        "unitName",
+        "vehicleClass",
+        "fuelType",
+        "maxPayloadTons",
+        "driverName",
+        "status",
+        "currentPosition",
+        "currentLocationLabel",
+        "nextServiceOdometerKm",
+        "nextServiceDateIso",
+        "teltonika",
+        "createdAt",
+        "updatedAt"
+      ]
+    },
+    "MaintenanceRecord": {
+      "title": "MaintenanceRecord",
+      "description": "Preventive or corrective maintenance log entry for a fleet vehicle.",
+      "type": "object",
+      "properties": {
+        "ownerId": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "vehicleId": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "type": { "type": "string", "enum": ["preventive", "corrective"] },
+        "title": { "type": "string", "minLength": 2, "maxLength": 160 },
+        "odometerAtServiceKm": { "type": "number" },
+        "dateIso": { "type": "string", "maxLength": 40 },
+        "costUsd": { "type": "number" },
+        "technicianNotes": { "type": "string", "maxLength": 500 },
+        "nextDueOdometerKm": { "type": "number" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["ownerId", "vehicleId", "type", "title", "odometerAtServiceKm", "dateIso", "costUsd", "technicianNotes", "createdAt"]
+    },
+    "Shipment": {
+      "title": "Shipment",
+      "description": "Spot, scheduled, or empty-backhaul freight shipment with carbon metrics and off-platform settlement terms.",
+      "type": "object",
+      "properties": {
+        "code": { "type": "string", "minLength": 3, "maxLength": 32 },
+        "title": { "type": "string", "minLength": 3, "maxLength": 140 },
+        "cargoType": { "type": "string", "minLength": 2, "maxLength": 140 },
+        "mode": { "type": "string", "enum": ["spot", "programada", "ruta_vacia"] },
+        "status": { "type": "string", "enum": ["disponible", "asignado", "en_transito", "entregado"] },
+        "shipperId": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "shipperName": { "type": "string", "minLength": 2, "maxLength": 120 },
+        "carrierId": { "type": "string", "maxLength": 128 },
+        "assignedVehicleId": { "type": "string", "maxLength": 128 },
+        "originName": { "type": "string", "minLength": 2, "maxLength": 180 },
+        "originCoords": { "type": "object" },
+        "destinationName": { "type": "string", "minLength": 2, "maxLength": 180 },
+        "destinationCoords": { "type": "object" },
+        "distanceKm": { "type": "number" },
+        "estimatedDurationMin": { "type": "number" },
+        "trafficDelayPct": { "type": "number" },
+        "payloadTons": { "type": "number" },
+        "priceUsd": { "type": "number" },
+        "paymentTerms": { "type": "string", "enum": ["contado_entrega", "credito_15", "credito_30", "credito_60", "factoraje"] },
+        "settlementStatus": { "type": "string", "enum": ["pendiente_entrega", "facturado_por_cobrar", "liquidado_externo"] },
+        "invoiceFolio": { "type": "string", "maxLength": 64 },
+        "externalPaymentRef": { "type": "string", "maxLength": 80 },
+        "backhaulDiscountPct": { "type": "number" },
+        "scheduledDateIso": { "type": "string", "maxLength": 40 },
+        "fuelType": { "type": "string", "enum": ["DIESEL", "HYBRID", "ELECTRIC", "LNG"] },
+        "estimatedFuelLiters": { "type": "number" },
+        "co2Kg": { "type": "number" },
+        "ecoRouteSavedCo2Kg": { "type": "number" },
+        "offsetCompleted": { "type": "boolean" },
+        "offsetProjectId": { "type": "string", "maxLength": 80 },
+        "certificateId": { "type": "string", "maxLength": 128 },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": [
+        "code",
+        "title",
+        "cargoType",
+        "mode",
+        "status",
+        "shipperId",
+        "shipperName",
+        "originName",
+        "originCoords",
+        "destinationName",
+        "destinationCoords",
+        "distanceKm",
+        "estimatedDurationMin",
+        "trafficDelayPct",
+        "payloadTons",
+        "priceUsd",
+        "paymentTerms",
+        "settlementStatus",
+        "backhaulDiscountPct",
+        "scheduledDateIso",
+        "fuelType",
+        "estimatedFuelLiters",
+        "co2Kg",
+        "ecoRouteSavedCo2Kg",
+        "offsetCompleted",
+        "createdAt",
+        "updatedAt"
+      ]
+    },
+    "TraceabilityEvent": {
+      "title": "TraceabilityEvent",
+      "description": "Immutable traceability timeline event attached to a shipment.",
+      "type": "object",
+      "properties": {
+        "actorId": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "timestampIso": { "type": "string", "maxLength": 40 },
+        "title": { "type": "string", "minLength": 2, "maxLength": 160 },
+        "detail": { "type": "string", "minLength": 2, "maxLength": 500 },
+        "source": { "type": "string", "enum": ["Teltonika GPS", "Google Maps", "Liquidación Externa", "Blockchain"] },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["actorId", "timestampIso", "title", "detail", "source", "createdAt"]
+    },
+    "BlockchainCertificate": {
+      "title": "BlockchainCertificate",
+      "description": "Publicly verifiable ESG carbon compensation and blockchain attestation certificate.",
+      "type": "object",
+      "properties": {
+        "issuerId": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "visibility": { "type": "string", "enum": ["public_verifiable"] },
+        "certificateCode": { "type": "string", "minLength": 4, "maxLength": 40 },
+        "shipmentId": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "shipmentCode": { "type": "string", "minLength": 3, "maxLength": 32 },
+        "vehiclePlate": { "type": "string", "minLength": 2, "maxLength": 32 },
+        "teltonikaImei": { "type": "string", "minLength": 8, "maxLength": 32 },
+        "distanceKm": { "type": "number" },
+        "fuelConsumedLiters": { "type": "number" },
+        "co2CompensatedKg": { "type": "number" },
+        "offsetCostUsd": { "type": "number" },
+        "projectId": { "type": "string", "minLength": 2, "maxLength": 64 },
+        "projectName": { "type": "string", "minLength": 2, "maxLength": 160 },
+        "txHash": { "type": "string", "minLength": 10, "maxLength": 128 },
+        "blockNumber": { "type": "number" },
+        "anchorMode": { "type": "string", "enum": ["evm_onchain", "ecdsa_attestation"] },
+        "networkName": { "type": "string", "minLength": 2, "maxLength": 80 },
+        "explorerUrl": { "type": "string", "maxLength": 240 },
+        "signature": { "type": "string", "maxLength": 200 },
+        "signerAddress": { "type": "string", "maxLength": 80 },
+        "registryProvider": { "type": "string", "maxLength": 80 },
+        "registryOrderId": { "type": "string", "maxLength": 120 },
+        "registryStatus": { "type": "string", "enum": ["retired_verified", "pending_registry_settlement"] },
+        "issuedAtIso": { "type": "string", "maxLength": 40 },
+        "standard": { "type": "string", "minLength": 2, "maxLength": 100 },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": [
+        "issuerId",
+        "visibility",
+        "certificateCode",
+        "shipmentId",
+        "shipmentCode",
+        "vehiclePlate",
+        "teltonikaImei",
+        "distanceKm",
+        "fuelConsumedLiters",
+        "co2CompensatedKg",
+        "offsetCostUsd",
+        "projectId",
+        "projectName",
+        "txHash",
+        "blockNumber",
+        "anchorMode",
+        "networkName",
+        "registryStatus",
+        "issuedAtIso",
+        "standard",
+        "createdAt"
+      ]
+    },
+    "SettlementRecord": {
+      "title": "SettlementRecord",
+      "description": "Off-platform freight settlement/invoice record and ESG carbon allocation ledger entry.",
+      "type": "object",
+      "properties": {
+        "ownerId": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "counterpartyId": { "type": "string", "maxLength": 128 },
+        "shipmentId": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "type": { "type": "string", "enum": ["freight_invoice", "external_transfer", "carbon_retirement", "esg_budget_allocation"] },
+        "description": { "type": "string", "minLength": 2, "maxLength": 220 },
+        "amountUsd": { "type": "number" },
+        "paymentTerms": { "type": "string", "enum": ["contado_entrega", "credito_15", "credito_30", "credito_60", "factoraje", "esg_directo"] },
+        "dueDateIso": { "type": "string", "maxLength": 40 },
+        "invoiceFolio": { "type": "string", "maxLength": 64 },
+        "externalRef": { "type": "string", "maxLength": 80 },
+        "status": { "type": "string", "enum": ["pendiente_entrega", "facturado_por_cobrar", "liquidado_externo", "confirmado"] },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["ownerId", "shipmentId", "type", "description", "amountUsd", "paymentTerms", "status", "createdAt", "updatedAt"]
+    },
+    "PushNotificationItem": {
+      "title": "PushNotificationItem",
+      "description": "Operational alert notification for a specific user.",
+      "type": "object",
+      "properties": {
+        "recipientId": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "severity": { "type": "string", "enum": ["info", "warning", "critical", "success"] },
+        "category": { "type": "string", "enum": ["trafico", "mantenimiento", "ruta_vacia", "carbono", "liquidacion"] },
+        "title": { "type": "string", "minLength": 2, "maxLength": 160 },
+        "message": { "type": "string", "minLength": 2, "maxLength": 400 },
+        "read": { "type": "boolean" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["recipientId", "severity", "category", "title", "message", "read", "createdAt"]
+    },
+    "SupportTicket": {
+      "title": "SupportTicket",
+      "description": "24/7 operational and Teltonika technical support ticket.",
+      "type": "object",
+      "properties": {
+        "authorId": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "subject": { "type": "string", "minLength": 2, "maxLength": 160 },
+        "category": { "type": "string", "enum": ["Teltonika GPS", "Enrutamiento Maps", "Liquidación y Facturas", "Certificado Blockchain"] },
+        "priority": { "type": "string", "enum": ["normal", "alta"] },
+        "status": { "type": "string", "enum": ["abierto", "resuelto"] },
+        "aiDiagnosticSummary": { "type": "string", "maxLength": 1200 },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["authorId", "subject", "category", "priority", "status", "createdAt", "updatedAt"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": { "$ref": "#/entities/UserProfile" },
+      "description": "Public operational user profile with role selection."
+    },
+    "/users/{userId}/private/{docId}": {
+      "schema": { "$ref": "#/entities/UserPrivateInfo" },
+      "description": "PII-isolated private account information."
+    },
+    "/vehicles/{vehicleId}": {
+      "schema": { "$ref": "#/entities/FleetVehicle" },
+      "description": "Fleet vehicles equipped with Teltonika GPS CAN-bus telemetry."
+    },
+    "/vehicles/{vehicleId}/maintenance/{recordId}": {
+      "schema": { "$ref": "#/entities/MaintenanceRecord" },
+      "description": "Preventive and corrective maintenance logbook per vehicle."
+    },
+    "/shipments/{shipmentId}": {
+      "schema": { "$ref": "#/entities/Shipment" },
+      "description": "Freight loads across spot, scheduled, and empty-backhaul corridors."
+    },
+    "/shipments/{shipmentId}/events/{eventId}": {
+      "schema": { "$ref": "#/entities/TraceabilityEvent" },
+      "description": "End-to-end traceability events per shipment."
+    },
+    "/certificates/{certificateId}": {
+      "schema": { "$ref": "#/entities/BlockchainCertificate" },
+      "description": "Publicly verifiable carbon compensation and blockchain attestation certificates."
+    },
+    "/settlements/{settlementId}": {
+      "schema": { "$ref": "#/entities/SettlementRecord" },
+      "description": "Off-platform freight invoices, credit term schedules, and ESG offset allocations."
+    },
+    "/notifications/{notificationId}": {
+      "schema": { "$ref": "#/entities/PushNotificationItem" },
+      "description": "Real-time operational notifications."
+    },
+    "/supportTickets/{ticketId}": {
+      "schema": { "$ref": "#/entities/SupportTicket" },
+      "description": "24/7 technical and logistics support tickets."
+    }
+  }
+}

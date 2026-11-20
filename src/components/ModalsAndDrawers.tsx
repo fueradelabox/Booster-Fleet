@@ -10,6 +10,7 @@ import {
 import type {
   FuelType,
   LatLngLiteral,
+  PaymentTerms,
   PushNotificationItem,
   ShipmentMode,
   SupportTicket,
@@ -30,18 +31,19 @@ function haversineKm(a: LatLngLiteral, b: LatLngLiteral): number {
       Math.cos((b.lat * Math.PI) / 180) *
       Math.sin(dLng / 2) *
       Math.sin(dLng / 2);
-  // Road factor 1.24x over straight-line distance
   return Math.max(15, Math.round(2 * R * Math.atan2(Math.sqrt(s1), Math.sqrt(1 - s1)) * 1.24));
 }
 
 interface NewLoadModalProps {
   open: boolean;
   mapsAvailable: boolean;
+  defaultShipperName?: string;
   onClose: () => void;
   onCreateLoad: (payload: {
     title: string;
     cargoType: string;
     mode: ShipmentMode;
+    paymentTerms: PaymentTerms;
     shipperName: string;
     originName: string;
     originCoords: LatLngLiteral;
@@ -62,13 +64,17 @@ interface NewLoadModalProps {
 export const NewLoadModal: React.FC<NewLoadModalProps> = ({
   open,
   mapsAvailable,
+  defaultShipperName,
   onClose,
   onCreateLoad,
 }) => {
   const [title, setTitle] = useState('');
   const [cargoType, setCargoType] = useState('');
-  const [shipperName, setShipperName] = useState('Distribuidora Centro');
+  const [shipperName, setShipperName] = useState(
+    defaultShipperName || 'Distribuidora Centro'
+  );
   const [mode, setMode] = useState<ShipmentMode>('spot');
+  const [paymentTerms, setPaymentTerms] = useState<PaymentTerms>('credito_30');
   const [originName, setOriginName] = useState('Ciudad de México, CDMX');
   const [originCoords, setOriginCoords] = useState<LatLngLiteral>({
     lat: 19.4326,
@@ -133,6 +139,7 @@ export const NewLoadModal: React.FC<NewLoadModalProps> = ({
       title: title.trim(),
       cargoType: `${cargoType.trim()} · ${parsedTons} t`,
       mode,
+      paymentTerms,
       shipperName: shipperName.trim() || 'Cliente Corporativo',
       originName: originName.trim(),
       originCoords,
@@ -167,7 +174,7 @@ export const NewLoadModal: React.FC<NewLoadModalProps> = ({
               Publicar Nueva Solicitud de Carga
             </h2>
             <p className="text-xs text-slate-500">
-              Cotización spot dinámica y cálculo de huella CO₂e en tiempo real
+              Tarifa referencial, plazos de pago externo y cálculo de huella CO₂e
             </p>
           </div>
           <button
@@ -301,20 +308,38 @@ export const NewLoadModal: React.FC<NewLoadModalProps> = ({
             </div>
           </div>
 
-          <div>
-            <label htmlFor="load-shipper" className="block text-xs font-medium text-slate-700 mb-1">
-              Generador de carga
-            </label>
-            <input
-              id="load-shipper"
-              type="text"
-              value={shipperName}
-              onChange={(e) => setShipperName(e.target.value)}
-              className="w-full rounded-lg border border-slate-300 px-3 py-2 text-xs"
-            />
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div>
+              <label htmlFor="load-shipper" className="block text-xs font-medium text-slate-700 mb-1">
+                Generador de carga
+              </label>
+              <input
+                id="load-shipper"
+                type="text"
+                value={shipperName}
+                onChange={(e) => setShipperName(e.target.value)}
+                className="w-full rounded-lg border border-slate-300 px-3 py-2 text-xs"
+              />
+            </div>
+            <div>
+              <label htmlFor="load-terms" className="block text-xs font-medium text-slate-700 mb-1">
+                Condición de pago (externo)
+              </label>
+              <select
+                id="load-terms"
+                value={paymentTerms}
+                onChange={(e) => setPaymentTerms(e.target.value as PaymentTerms)}
+                className="w-full rounded-lg border border-slate-300 bg-white px-2.5 py-2 text-xs"
+              >
+                <option value="contado_entrega">Contado contra entrega</option>
+                <option value="credito_15">Crédito 15 días</option>
+                <option value="credito_30">Crédito 30 días</option>
+                <option value="credito_60">Crédito 60 días</option>
+                <option value="factoraje">Factoraje corporativo</option>
+              </select>
+            </div>
           </div>
 
-          {/* Live Dynamic Price + Carbon Estimate Preview */}
           <div className="rounded-xl bg-slate-50 border border-slate-200 p-4 grid grid-cols-3 gap-3 text-xs">
             <div>
               <span className="text-slate-500 block">Distancia estimada</span>
@@ -323,7 +348,7 @@ export const NewLoadModal: React.FC<NewLoadModalProps> = ({
               </span>
             </div>
             <div>
-              <span className="text-slate-500 block">Tarifa sugerida</span>
+              <span className="text-slate-500 block">Tarifa acordada</span>
               <span className="font-mono font-semibold text-slate-900 tabular-nums">
                 ${pricePreview.totalPriceUsd.toFixed(2)} USD
               </span>
@@ -582,7 +607,7 @@ export const SupportDrawer: React.FC<SupportDrawerProps> = ({
               >
                 <option value="Teltonika GPS">Teltonika GPS / CAN-bus</option>
                 <option value="Enrutamiento Maps">Enrutamiento Google Maps</option>
-                <option value="Billetera y Pagos">Billetera Digital</option>
+                <option value="Liquidación y Facturas">Liquidación y Facturas</option>
                 <option value="Certificado Blockchain">Certificado Blockchain</option>
               </select>
             </div>

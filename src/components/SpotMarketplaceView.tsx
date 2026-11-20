@@ -15,12 +15,14 @@ import type {
   ShipmentMode,
   UserRole,
 } from '../types/logistics';
+import { formatPaymentTermsLabel } from '../utils/logisticsEngine';
 
 interface SpotMarketplaceViewProps {
   shipments: Shipment[];
   fleet: FleetVehicle[];
   userRole: UserRole;
   onAssignShipment: (shipmentId: string, vehicleId: string) => void;
+  onAdvanceStatus: (shipmentId: string, nextStatus: 'entregado') => void;
   onOpenNewLoad: () => void;
 }
 
@@ -29,6 +31,7 @@ export const SpotMarketplaceView: React.FC<SpotMarketplaceViewProps> = ({
   fleet,
   userRole,
   onAssignShipment,
+  onAdvanceStatus,
   onOpenNewLoad,
 }) => {
   const [filterMode, setFilterMode] = useState<'all' | ShipmentMode>('all');
@@ -64,7 +67,7 @@ export const SpotMarketplaceView: React.FC<SpotMarketplaceViewProps> = ({
 
   return (
     <div className="space-y-6">
-      {/* Empty Backhaul Highlight for Carriers / Control Tower */}
+      {/* Empty Backhaul Highlight */}
       {emptyReturnVehicles.length > 0 && (
         <section className="bg-emerald-950 text-white rounded-xl p-5 flex flex-col md:flex-row md:items-center justify-between gap-4">
           <div className="space-y-1">
@@ -193,7 +196,7 @@ export const SpotMarketplaceView: React.FC<SpotMarketplaceViewProps> = ({
                 <div className="space-y-3">
                   <div className="flex items-start justify-between gap-3">
                     <div>
-                      <div className="text-xs text-slate-500 flex items-center gap-1.5">
+                      <div className="text-xs text-slate-500 flex items-center gap-1.5 flex-wrap">
                         <span className="font-mono font-semibold text-slate-800">
                           {load.code}
                         </span>
@@ -234,10 +237,12 @@ export const SpotMarketplaceView: React.FC<SpotMarketplaceViewProps> = ({
                       </span>
                     </div>
                     <div>
-                      <span className="text-slate-500 block">Carga / Modalidad</span>
+                      <span className="text-slate-500 block">Condición de Pago</span>
                       <span className="font-medium text-slate-900 flex items-center gap-1">
-                        <CalendarClock className="w-3.5 h-3.5 text-slate-400" />
-                        {load.payloadTons} t
+                        <CalendarClock className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                        <span className="truncate">
+                          {formatPaymentTermsLabel(load.paymentTerms)}
+                        </span>
                       </span>
                     </div>
                     <div>
@@ -283,17 +288,28 @@ export const SpotMarketplaceView: React.FC<SpotMarketplaceViewProps> = ({
                       </button>
                     </>
                   ) : (
-                    <div className="w-full flex items-center justify-between text-xs">
+                    <div className="w-full flex flex-wrap items-center justify-between gap-2 text-xs">
                       <span className="inline-flex items-center gap-1.5 font-medium text-emerald-700">
                         <CheckCircle2 className="w-4 h-4" />
                         Estado: {load.status.replace('_', ' ')} ·{' '}
-                        {load.status === 'entregado'
-                          ? 'Liquidación completada'
-                          : 'Custodia activa en billetera'}
+                        {load.settlementStatus === 'liquidado_externo'
+                          ? 'Liquidado externamente'
+                          : 'Pago directo fuera de plataforma'}
                       </span>
-                      <span className="font-mono text-slate-500">
-                        {new Date(load.scheduledDateIso).toLocaleDateString('es-MX')}
-                      </span>
+                      <div className="flex items-center gap-2">
+                        {load.status === 'en_transito' && (
+                          <button
+                            type="button"
+                            onClick={() => onAdvanceStatus(load.id, 'entregado')}
+                            className="px-3 py-1 rounded-md bg-slate-900 hover:bg-slate-800 text-white text-[11px] font-semibold cursor-pointer"
+                          >
+                            Confirmar Entrega
+                          </button>
+                        )}
+                        <span className="font-mono text-slate-500">
+                          {new Date(load.scheduledDateIso).toLocaleDateString('es-MX')}
+                        </span>
+                      </div>
                     </div>
                   )}
                 </div>

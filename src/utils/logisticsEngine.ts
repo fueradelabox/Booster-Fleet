@@ -1,9 +1,11 @@
 import type {
   BlockchainCertificate,
-  DigitalWallet,
   FleetVehicle,
   FuelType,
   MaintenanceAlertLevel,
+  PaymentTerms,
+  SettlementLedger,
+  TeltonikaPacket,
 } from '../types/logistics';
 
 export interface CarbonCalculationInput {
@@ -26,17 +28,17 @@ export interface CarbonCalculationResult {
 
 // IPCC / GLEC Freight Emission Factors (Well-to-Wheel)
 const EMISSION_FACTORS_KG_PER_UNIT: Record<FuelType, number> = {
-  DIESEL: 2.68, // kg CO2e per liter
-  HYBRID: 2.15, // kg CO2e per liter (blended diesel-electric)
-  LNG: 2.75, // kg CO2e per kg LNG equivalent
-  ELECTRIC: 0.18, // kg CO2e per kWh (grid mix)
+  DIESEL: 2.68,
+  HYBRID: 2.15,
+  LNG: 2.75,
+  ELECTRIC: 0.18,
 };
 
 const BASE_CONSUMPTION_PER_100KM: Record<FuelType, number> = {
-  DIESEL: 32.0, // L/100km heavy truck baseline
-  HYBRID: 23.5, // L/100km
-  LNG: 29.0, // kg/100km eq
-  ELECTRIC: 118.0, // kWh/100km heavy e-truck
+  DIESEL: 32.0,
+  HYBRID: 23.5,
+  LNG: 29.0,
+  ELECTRIC: 118.0,
 };
 
 export const CARBON_PRICE_PER_TON_USD = 24.5;
@@ -53,9 +55,7 @@ export function calculateCarbonFootprint(
       ? input.vehicleConsumptionPer100Km
       : BASE_CONSUMPTION_PER_100KM[input.fuelType];
 
-  // Payload weight factor: +1.1% fuel per ton above 10t baseline, capped smoothly
   const payloadMultiplier = 1 + Math.max(0, safePayload - 10) * 0.011;
-  // Congestion idle penalty: up to +18% fuel burn in heavy traffic
   const trafficMultiplier = 1 + (safeTraffic / 100) * 0.25;
 
   const rawConsumption =
@@ -65,7 +65,6 @@ export function calculateCarbonFootprint(
   const co2Kg = Number((rawConsumption * factor).toFixed(2));
   const co2Tons = Number((co2Kg / 1000).toFixed(4));
 
-  // Eco-friendly Google Maps routing avoids steep grades & stop-and-go bottlenecks (~8.5% savings)
   const standardRouteCo2Kg = Number((co2Kg * 1.093).toFixed(2));
   const ecoRouteSavedCo2Kg = Number((standardRouteCo2Kg - co2Kg).toFixed(2));
   const recommendedOffsetUsd = Number(
@@ -116,7 +115,8 @@ export function calculateSpotFreightPrice(
   const fuelSurchargeUsd = estimatedLiters * fuelPrice * 0.35;
 
   const subtotal = Number((baseFreightUsd + fuelSurchargeUsd).toFixed(2));
-  const discountRate = Math.max(0, Math.min(45, input.backhaulDiscountPct ?? 0)) / 100;
+  const discountRate =
+    Math.max(0, Math.min(45, input.backhaulDiscountPct ?? 0)) / 100;
   const discountUsd = Number((subtotal * discountRate).toFixed(2));
   const totalPriceUsd = Number((subtotal - discountUsd).toFixed(2));
 
@@ -217,7 +217,6 @@ export function computePredictiveEta(
   };
 }
 
-// Pure deterministic FNV-1a + mixing 256-bit hex digest so tests & browser share identical behavior
 export function computeDeterministicLedgerHash(payload: string): string {
   const seeds = [
     0x811c9dc5, 0x9e3779b9, 0x85ebca6b, 0xc2b2ae35,
@@ -251,6 +250,20 @@ export interface MintCertificateInput {
   standard: string;
   issuedAtIso: string;
   existingBlockCount: number;
+  anchorProof?: {
+    txHash: string;
+    blockNumber: number;
+    anchorMode: 'evm_onchain' | 'ecdsa_attestation';
+    networkName: string;
+    explorerUrl?: string;
+    signature?: string;
+    signerAddress?: string;
+  };
+  registryProof?: {
+    registryProvider?: string;
+    registryOrderId?: string;
+    registryStatus: 'retired_verified' | 'pending_registry_settlement';
+  };
 }
 
 export function mintBlockchainCertificate(
@@ -266,12 +279,16 @@ export function mintBlockchainCertificate(
     input.issuedAtIso,
   ].join('|');
 
-  const txHash = computeDeterministicLedgerHash(canonicalPayload);
-  const blockNumber = 19842100 + input.existingBlockCount * 17 + 1;
+  const fallbackHash = computeDeterministicLedgerHash(canonicalPayload);
+  const txHash = input.anchorProof?.txHash || fallbackHash;
   const certSuffix = txHash.slice(2, 8).toUpperCase();
+  const blockNumber =
+    input.anchorProof?.blockNumber ??
+    19842100 + input.existingBlockCount * 17 + 1;
 
   return {
-    id: `cert-${input.shipmentId}-${certSuffix}`,
+    id: `TC-ESG-${certSuffix}`,
+    visibility: 'public_verifiable',
     certificateCode: `TC-ESG-${certSuffix}`,
     shipmentId: input.shipmentId,
     shipmentCode: input.shipmentCode,
@@ -285,60 +302,221 @@ export function mintBlockchainCertificate(
     projectName: input.projectName,
     txHash,
     blockNumber,
+    anchorMode: input.anchorProof?.anchorMode ?? 'ecdsa_attestation',
+    networkName:
+      input.anchorProof?.networkName ?? 'Polygon / Base · Firma ECDSA',
+    explorerUrl: input.anchorProof?.explorerUrl,
+    signature: input.anchorProof?.signature,
+    signerAddress: input.anchorProof?.signerAddress,
+    registryProvider:
+      input.registryProof?.registryProvider ??
+      'Verra VCS / Gold Standard (Reserva Corporativa)',
+    registryOrderId: input.registryProof?.registryOrderId,
+    registryStatus:
+      input.registryProof?.registryStatus ?? 'pending_registry_settlement',
     issuedAtIso: input.issuedAtIso,
     standard: input.standard,
   };
 }
 
-export interface WalletChargeResult {
+export interface EsgBudgetChargeResult {
   ok: boolean;
   error?: string;
-  wallet: DigitalWallet;
+  ledger: SettlementLedger;
 }
 
-export function processWalletOffset(params: {
-  wallet: DigitalWallet;
+export function processEsgBudgetOffset(params: {
+  ledger: SettlementLedger;
   amountUsd: number;
   description: string;
-  referenceId: string;
+  shipmentId: string;
   timestampIso: string;
-}): WalletChargeResult {
+}): EsgBudgetChargeResult {
   const amount = Number(params.amountUsd.toFixed(2));
   if (amount <= 0) {
     return {
       ok: false,
       error: 'El monto de compensación debe ser mayor a $0.00 USD.',
-      wallet: params.wallet,
+      ledger: params.ledger,
     };
   }
-  if (params.wallet.balanceUsd < amount) {
+  if (params.ledger.esgBudgetUsd < amount) {
     return {
       ok: false,
-      error: `Saldo insuficiente en billetera ($${params.wallet.balanceUsd.toFixed(2)} USD disponibles vs $${amount.toFixed(2)} USD requeridos).`,
-      wallet: params.wallet,
+      error: `Presupuesto ESG insuficiente ($${params.ledger.esgBudgetUsd.toFixed(2)} USD disponibles vs $${amount.toFixed(2)} USD requeridos).`,
+      ledger: params.ledger,
     };
   }
 
   return {
     ok: true,
-    wallet: {
-      ...params.wallet,
-      balanceUsd: Number((params.wallet.balanceUsd - amount).toFixed(2)),
+    ledger: {
+      ...params.ledger,
+      esgBudgetUsd: Number((params.ledger.esgBudgetUsd - amount).toFixed(2)),
       totalOffsetSpentUsd: Number(
-        (params.wallet.totalOffsetSpentUsd + amount).toFixed(2)
+        (params.ledger.totalOffsetSpentUsd + amount).toFixed(2)
       ),
-      transactions: [
+      records: [
         {
-          id: `tx-offset-${Date.now()}`,
+          id: `stl-offset-${Date.now()}`,
+          shipmentId: params.shipmentId,
           timestampIso: params.timestampIso,
-          type: 'carbon_offset',
+          type: 'carbon_retirement',
           description: params.description,
           amountUsd: -amount,
-          referenceId: params.referenceId,
+          paymentTerms: 'esg_directo',
           status: 'confirmado',
         },
-        ...params.wallet.transactions,
+        ...params.ledger.records,
       ],
+    },
+  };
+}
+
+export function formatPaymentTermsLabel(terms: PaymentTerms | 'esg_directo'): string {
+  switch (terms) {
+    case 'contado_entrega':
+      return 'Contado contra entrega (externo)';
+    case 'credito_15':
+      return 'Crédito 15 días';
+    case 'credito_30':
+      return 'Crédito 30 días';
+    case 'credito_60':
+      return 'Crédito 60 días';
+    case 'factoraje':
+      return 'Factoraje corporativo';
+    case 'esg_directo':
+      return 'Asignación ESG directa';
+  }
+}
+
+export function computeDueDateIso(
+  baseIso: string,
+  terms: PaymentTerms
+): string {
+  const daysMap: Record<PaymentTerms, number> = {
+    contado_entrega: 1,
+    credito_15: 15,
+    credito_30: 30,
+    credito_60: 60,
+    factoraje: 7,
+  };
+  const date = new Date(baseIso);
+  if (Number.isNaN(date.getTime())) {
+    return new Date().toISOString();
+  }
+  date.setUTCDate(date.getUTCDate() + daysMap[terms]);
+  return date.toISOString();
+}
+
+export function normalizeTeltonikaPayload(
+  raw: Record<string, unknown>
+): { ok: true; packet: TeltonikaPacket } | { ok: false; error: string } {
+  const reported =
+    raw.state && typeof raw.state === 'object' && 'reported' in raw.state
+      ? ((raw.state as { reported?: Record<string, unknown> }).reported ?? {})
+      : raw;
+
+  const imei = String(
+    reported.imei ?? raw.imei ?? reported.deviceId ?? ''
+  ).trim();
+  if (!imei || imei.length < 8 || imei.length > 32) {
+    return {
+      ok: false,
+      error: 'IMEI Teltonika inválido o ausente (se requieren 8–32 caracteres).',
+    };
+  }
+
+  let lat = Number(reported.lat ?? reported.latitude);
+  let lng = Number(reported.lng ?? reported.lon ?? reported.longitude);
+
+  if ((!Number.isFinite(lat) || !Number.isFinite(lng)) && typeof reported.latlng === 'string') {
+    const parts = reported.latlng.split(',').map((s) => Number(s.trim()));
+    if (parts.length === 2) {
+      lat = parts[0];
+      lng = parts[1];
+    }
+  }
+
+  if (
+    !Number.isFinite(lat) ||
+    !Number.isFinite(lng) ||
+    lat < -90 ||
+    lat > 90 ||
+    lng < -180 ||
+    lng > 180
+  ) {
+    return {
+      ok: false,
+      error: 'Coordenadas GPS lat/lng inválidas en paquete Teltonika.',
+    };
+  }
+
+  const io =
+    reported.io && typeof reported.io === 'object'
+      ? (reported.io as Record<string, unknown>)
+      : {};
+
+  const speedRaw = Number(reported.speedKmh ?? reported.sp ?? io['24'] ?? 0);
+  const speedKmh = Number.isFinite(speedRaw)
+    ? Math.max(0, Math.min(220, Math.round(speedRaw)))
+    : 0;
+
+  const odometerRaw =
+    reported.odometerKm ??
+    (typeof io['16'] === 'number' ? Number(io['16']) / 1000 : undefined);
+  const odometerKm =
+    typeof odometerRaw === 'number' && Number.isFinite(odometerRaw)
+      ? Math.max(0, Math.round(odometerRaw))
+      : undefined;
+
+  const fuelRaw = reported.fuelLevelPct ?? io['89'] ?? io['84'];
+  const fuelLevelPct =
+    typeof fuelRaw === 'number' && Number.isFinite(fuelRaw)
+      ? Math.max(0, Math.min(100, Math.round(fuelRaw)))
+      : undefined;
+
+  const canFuelRaw = reported.canFuelRateLPer100Km;
+  const canFuelRateLPer100Km =
+    typeof canFuelRaw === 'number' && Number.isFinite(canFuelRaw)
+      ? Math.max(0, Number(canFuelRaw.toFixed(1)))
+      : undefined;
+
+  const ignitionRaw = reported.ignitionOn ?? reported.ig ?? io['239'];
+  const ignitionOn =
+    typeof ignitionRaw === 'boolean'
+      ? ignitionRaw
+      : Number(ignitionRaw) === 1 || speedKmh > 3;
+
+  const satRaw = Number(reported.satellites ?? reported.sat ?? 12);
+  const satellites = Number.isFinite(satRaw)
+    ? Math.max(0, Math.min(64, Math.round(satRaw)))
+    : 12;
+
+  const timestampIso =
+    typeof reported.timestampIso === 'string' && reported.timestampIso
+      ? reported.timestampIso
+      : new Date().toISOString();
+
+  const locationLabel =
+    typeof reported.locationLabel === 'string' && reported.locationLabel.trim()
+      ? reported.locationLabel.trim().slice(0, 160)
+      : undefined;
+
+  return {
+    ok: true,
+    packet: {
+      imei,
+      lat: Number(lat.toFixed(5)),
+      lng: Number(lng.toFixed(5)),
+      speedKmh,
+      odometerKm,
+      fuelLevelPct,
+      canFuelRateLPer100Km,
+      ignitionOn,
+      satellites,
+      timestampIso,
+      locationLabel,
     },
   };
 }
