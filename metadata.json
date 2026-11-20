@@ -1,0 +1,6 @@
+{
+  "name": "TerraCarga — Logística Inteligente y Carbono Neutral",
+  "description": "Plataforma integral de transporte de carga bajo demanda y gestión de flotas con Google Maps, telemetría GPS Teltonika, billetera digital, compensación de huella de carbono y trazabilidad blockchain.",
+  "requestFramePermissions": ["geolocation"],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
